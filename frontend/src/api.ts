@@ -117,6 +117,8 @@ export function fetchDashboard(token: string) {
 }
 
 export function syncSheets(token: string) {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), 180_000)
   return apiFetch<{
     ok: boolean
     message: string
@@ -126,7 +128,8 @@ export function syncSheets(token: string) {
   }>('/api/admin/sync/sheets', {
     method: 'POST',
     token,
-  })
+    signal: ctrl.signal,
+  }).finally(() => clearTimeout(t))
 }
 
 export function patchSettings(

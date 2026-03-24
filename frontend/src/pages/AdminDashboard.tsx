@@ -21,6 +21,8 @@ export function AdminDashboard() {
   >([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailErr, setDetailErr] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [exportingSheets, setExportingSheets] = useState(false)
 
   function load() {
     if (!token) return
@@ -64,7 +66,8 @@ export function AdminDashboard() {
   }, [token, detailClubId])
 
   async function onSync() {
-    if (!token) return
+    if (!token || syncing) return
+    setSyncing(true)
     setErr(null)
     setMsg(null)
     try {
@@ -77,18 +80,30 @@ export function AdminDashboard() {
       setMsg(`${r.message} (${counts}${pre})`)
       load()
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : '동기화 실패')
+      const aborted =
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && e.name === 'AbortError')
+      if (aborted) {
+        setErr('동기화 요청 시간 초과(3분). 서버·구글 시트 응답이 느립니다. 잠시 후 다시 시도하거나 Railway 로그를 확인하세요.')
+      } else {
+        setErr(e instanceof Error ? e.message : '동기화 실패')
+      }
+    } finally {
+      setSyncing(false)
     }
   }
 
   async function onExportSheets() {
-    if (!token) return
+    if (!token || exportingSheets) return
+    setExportingSheets(true)
     setErr(null)
     try {
       const r = await exportSheets(token)
       setMsg(r.message)
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : '보내기 실패')
+    } finally {
+      setExportingSheets(false)
     }
   }
 
@@ -164,11 +179,16 @@ export function AdminDashboard() {
         </h1>
         <p className="page-lead">구글 시트와 맞추고, 한눈에 동아리 현황을 확인해요.</p>
         <div className="row" style={{ marginBottom: 4 }}>
-          <button type="button" onClick={onSync}>
-            학생/동아리 동기화
+          <button type="button" onClick={onSync} disabled={syncing}>
+            {syncing ? '동기화 중… (구글·DB 처리로 1~2분 걸릴 수 있음)' : '학생/동아리 동기화'}
           </button>
-          <button type="button" className="secondary" onClick={onExportSheets}>
-            결과 → 구글 시트
+          <button
+            type="button"
+            className="secondary"
+            onClick={onExportSheets}
+            disabled={exportingSheets}
+          >
+            {exportingSheets ? '전송 중…' : '결과 → 구글 시트'}
           </button>
         </div>
         {msg && <p className="success">{msg}</p>}
