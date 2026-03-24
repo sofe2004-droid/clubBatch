@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 from app.config import get_settings
 
 
-SHEETS_AUTH_IMPL = 2
+SHEETS_AUTH_IMPL = 3
 """배포가 최신 google_creds인지 /health 등에서 확인용 (올리면 숫자만 증가)."""
 
 

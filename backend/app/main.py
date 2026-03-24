@@ -61,12 +61,13 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
+        raw = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
+        google_keys = sorted(k for k in os.environ if "GOOGLE" in k.upper())
         return {
             "status": "ok",
             "sheets_auth_code": SHEETS_AUTH_IMPL,
-            "google_service_account_json_set": bool(
-                (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
-            ),
+            "google_service_account_json_set": bool(raw),
+            "google_env_keys_present": google_keys,
         }
 
     _mount_frontend_static(app)
