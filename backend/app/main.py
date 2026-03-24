@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,6 +16,7 @@ from sqlalchemy import func, select
 from app.auth import hash_password
 from app.config import get_settings
 from app.database import AsyncSessionLocal, engine
+from app.google_creds import SHEETS_AUTH_IMPL
 from app.models import AdminUser, ApplicationSettings
 from app.routers import admin, student
 
@@ -59,7 +61,13 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "sheets_auth_code": SHEETS_AUTH_IMPL,
+            "google_service_account_json_set": bool(
+                (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
+            ),
+        }
 
     _mount_frontend_static(app)
 

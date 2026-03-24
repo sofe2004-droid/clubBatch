@@ -1,12 +1,11 @@
-import os
 from datetime import datetime, timezone
 
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.google_creds import load_service_account_credentials
 from app.models import Application, ApplicationStatus, Club, Student, SyncRun, SyncRunStatus
 from app.textnorm import (
     cell_to_str,
@@ -30,16 +29,14 @@ def _parse_yes(v: str | None) -> bool:
 
 def _get_sheets_service():
     s = get_settings()
-    path = s.google_service_account_json_path
-    if not path or not os.path.isfile(path):
-        return None, "GOOGLE_SERVICE_ACCOUNT_JSON_PATH가 설정되지 않았거나 파일이 없습니다."
+    creds, err = load_service_account_credentials(
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    )
+    if err or creds is None:
+        return None, err or "Google 인증 정보를 불러오지 못했습니다."
     sid = s.google_sheets_spreadsheet_id
     if not sid:
         return None, "GOOGLE_SHEETS_SPREADSHEET_ID가 없습니다."
-    creds = service_account.Credentials.from_service_account_file(
-        path,
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
-    )
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
     return (service, sid), None
 
@@ -105,6 +102,15 @@ def _rows_to_students(values: list[list[str]]) -> tuple[list[dict], str | None]:
                 "preassign_club_ref": preassign_ref,
             }
         )
+    if not out:
+        if len(values) <= 1:
+            return [], "학생 시트에 데이터 행이 없습니다(헤더만 있거나 시트 범위가 비었습니다)."
+        return (
+            [],
+            "학생 시트에 데이터 행은 있으나 '학번'·'이름'이 채워진 행이 없습니다. "
+            "첫 행에 정확히 '학번','이름' 헤더가 있는지, GOOGLE_SHEETS_STUDENTS_RANGE가 "
+            "해당 열을 모두 포함하는지 확인하세요.",
+        )
     return out, None
 
 
@@ -152,6 +158,14 @@ def _rows_to_clubs(values: list[list[str]]) -> tuple[list[dict], str | None]:
                 "description": desc,
                 "is_open": is_open,
             }
+        )
+    if not out:
+        if len(values) <= 1:
+            return [], "동아리 시트에 데이터 행이 없습니다(헤더만 있거나 범위가 비었습니다)."
+        return (
+            [],
+            "동아리 시트에 데이터 행은 있으나 반영 가능한 행이 없습니다. "
+            "동아리코드·동아리명·모집인원(1 이상)과 첫 행 헤더 이름을 확인하세요.",
         )
     return out, None
 

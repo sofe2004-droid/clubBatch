@@ -1,8 +1,6 @@
 import csv
 import io
-import os
 
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from openpyxl import Workbook
 from sqlalchemy import select
@@ -10,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from app.google_creds import load_service_account_credentials
 from app.models import Application, ApplicationStatus
 
 
@@ -84,15 +83,15 @@ def rows_to_xlsx_bytes(rows: list[dict]) -> bytes:
 
 async def export_results_to_google_sheet(db: AsyncSession) -> tuple[bool, str]:
     s = get_settings()
-    path = s.google_service_account_json_path
     sid = s.google_sheets_spreadsheet_id
-    if not path or not os.path.isfile(path) or not sid:
-        return False, "Google 시트 설정이 없습니다."
+    if not sid:
+        return False, "GOOGLE_SHEETS_SPREADSHEET_ID가 없습니다."
 
-    creds = service_account.Credentials.from_service_account_file(
-        path,
+    creds, err = load_service_account_credentials(
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
+    if err or creds is None:
+        return False, err or "Google 시트 인증에 실패했습니다."
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
     rows = await applications_to_rows(db)
     values = [

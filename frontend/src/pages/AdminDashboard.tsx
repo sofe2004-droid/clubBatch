@@ -69,11 +69,12 @@ export function AdminDashboard() {
     setMsg(null)
     try {
       const r = await syncSheets(token)
-      const extra =
+      const counts = `학생 ${r.students_upserted ?? 0}명 · 동아리 ${r.clubs_upserted ?? 0}개`
+      const pre =
         r.ok && r.preassignments_applied != null && r.preassignments_applied > 0
-          ? ` (시트 선정 반영 ${r.preassignments_applied}명)`
+          ? ` · 시트 선정 반영 ${r.preassignments_applied}명`
           : ''
-      setMsg(r.message + extra)
+      setMsg(`${r.message} (${counts}${pre})`)
       load()
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : '동기화 실패')
