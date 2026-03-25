@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -327,16 +327,18 @@ async def list_unassigned(
     grade: int | None = None,
     class_no: int | None = None,
 ):
-    sub = (
-        select(Application.student_id)
-        .where(
-            Application.status.in_(
-                [ApplicationStatus.COMPLETED, ApplicationStatus.FORCED_ASSIGN]
+    active = [ApplicationStatus.COMPLETED, ApplicationStatus.FORCED_ASSIGN]
+    # NOT IN (서브쿼리)는 NULL/드라이버 조합에서 전부 걸러지는 경우가 있어 NOT EXISTS 사용
+    stmt = select(Student).where(
+        ~exists(
+            select(1)
+            .select_from(Application)
+            .where(
+                Application.student_id == Student.id,
+                Application.status.in_(active),
             )
         )
-        .distinct()
     )
-    stmt = select(Student).where(~Student.id.in_(sub))
     if grade is not None:
         stmt = stmt.where(Student.grade == grade)
     if class_no is not None:
