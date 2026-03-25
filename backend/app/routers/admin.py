@@ -7,9 +7,10 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import create_admin_token, verify_password
+from app.auth import create_admin_token, create_teacher_view_token, verify_password
+from app.config import get_settings
 from app.database import get_db
-from app.deps import get_current_admin_id
+from app.deps import get_current_admin_id, get_current_dashboard_viewer
 from app.models import (
     AdminLog,
     AdminLogAction,
@@ -49,12 +50,23 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 @router.post("/login", response_model=AdminLoginResponse)
 async def admin_login(body: AdminLoginRequest, db: Annotated[AsyncSession, Depends(get_db)]):
+    s = get_settings()
+    if (
+        s.teacher_view_username
+        and s.teacher_view_password
+        and body.username == s.teacher_view_username
+        and body.password == s.teacher_view_password
+    ):
+        return AdminLoginResponse(
+            access_token=create_teacher_view_token(),
+            role="teacher",
+        )
     r = await db.execute(select(AdminUser).where(AdminUser.username == body.username))
     u = r.scalar_one_or_none()
     if u is None or not verify_password(body.password, u.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다.")
     token = create_admin_token(u.id)
-    return AdminLoginResponse(access_token=token)
+    return AdminLoginResponse(access_token=token, role="admin")
 
 
 @router.get("/settings", response_model=ApplicationSettingsOut)
@@ -170,7 +182,7 @@ async def admin_list_clubs(
 async def club_assigned_students(
     club_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[int, Depends(get_current_admin_id)],
+    _: Annotated[tuple[str, int | None], Depends(get_current_dashboard_viewer)],
 ):
     club = await db.get(Club, club_id)
     if club is None:
@@ -196,7 +208,7 @@ async def club_assigned_students(
 @router.get("/dashboard", response_model=DashboardOut)
 async def dashboard(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[int, Depends(get_current_admin_id)],
+    _: Annotated[tuple[str, int | None], Depends(get_current_dashboard_viewer)],
 ):
     now = datetime.now(timezone.utc)
     settings = await get_or_create_settings(db)

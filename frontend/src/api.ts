@@ -84,7 +84,7 @@ export function applyClub(token: string, club_id: number) {
   })
 }
 
-export type AdminLoginRes = { access_token: string }
+export type AdminLoginRes = { access_token: string; role?: string }
 
 export function adminLogin(username: string, password: string) {
   return apiFetch<AdminLoginRes>('/api/admin/login', {

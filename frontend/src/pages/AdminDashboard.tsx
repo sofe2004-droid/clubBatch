@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { Dashboard } from '../api'
 import {
   exportSheets,
@@ -8,9 +8,13 @@ import {
   syncSheets,
 } from '../api'
 import { AdminNav } from '../components/AdminNav'
-import { ADMIN_TOKEN_KEY } from './AdminLogin'
+import { TeacherNav } from '../components/TeacherNav'
+import { ADMIN_ROLE_KEY, ADMIN_TOKEN_KEY } from './AdminLogin'
 
-export function AdminDashboard() {
+export type AdminDashboardProps = { variant?: 'admin' | 'teacher' }
+
+export function AdminDashboard({ variant = 'admin' }: AdminDashboardProps) {
+  const nav = useNavigate()
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
   const [d, setD] = useState<Dashboard | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -35,6 +39,12 @@ export function AdminDashboard() {
   useEffect(() => {
     load()
   }, [token])
+
+  useEffect(() => {
+    if (variant === 'admin' && sessionStorage.getItem(ADMIN_ROLE_KEY) === 'teacher') {
+      nav('/teacher', { replace: true })
+    }
+  }, [variant, nav])
 
   useEffect(() => {
     if (!token || detailClubId == null) {
@@ -107,92 +117,109 @@ export function AdminDashboard() {
     }
   }
 
+  const loginHref = variant === 'teacher' ? '/teacher/login' : '/admin/login'
+
   if (!token) {
     return (
       <div className="layout">
         <p>로그인이 필요합니다.</p>
-        <Link to="/admin/login">로그인</Link>
+        <Link to={loginHref}>로그인</Link>
       </div>
     )
   }
 
+  const isTeacherView = variant === 'teacher'
+
   return (
     <div className="layout">
-      <AdminNav
-        token={token}
-        tools={
-          <>
-            <a
-              href="#csv"
-              onClick={(e) => {
-                e.preventDefault()
-                if (token) {
-                  fetch('/api/admin/export/csv', {
-                    headers: { Authorization: `Bearer ${token}` },
-                  })
-                    .then((r) => r.blob())
-                    .then((b) => {
-                      const u = URL.createObjectURL(b)
-                      const a = document.createElement('a')
-                      a.href = u
-                      a.download = 'applications.csv'
-                      a.click()
-                      URL.revokeObjectURL(u)
+      {isTeacherView ? (
+        <TeacherNav />
+      ) : (
+        <AdminNav
+          token={token}
+          tools={
+            <>
+              <a
+                href="#csv"
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (token) {
+                    fetch('/api/admin/export/csv', {
+                      headers: { Authorization: `Bearer ${token}` },
                     })
-                }
-              }}
-            >
-              CSV 받기
-            </a>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault()
-                if (token) {
-                  fetch('/api/admin/export/xlsx', {
-                    headers: { Authorization: `Bearer ${token}` },
-                  })
-                    .then((r) => r.blob())
-                    .then((b) => {
-                      const u = URL.createObjectURL(b)
-                      const a = document.createElement('a')
-                      a.href = u
-                      a.download = 'applications.xlsx'
-                      a.click()
-                      URL.revokeObjectURL(u)
+                      .then((r) => r.blob())
+                      .then((b) => {
+                        const u = URL.createObjectURL(b)
+                        const a = document.createElement('a')
+                        a.href = u
+                        a.download = 'applications.csv'
+                        a.click()
+                        URL.revokeObjectURL(u)
+                      })
+                  }
+                }}
+              >
+                CSV 받기
+              </a>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (token) {
+                    fetch('/api/admin/export/xlsx', {
+                      headers: { Authorization: `Bearer ${token}` },
                     })
-                }
-              }}
-            >
-              엑셀 받기
-            </a>
-          </>
-        }
-      />
+                      .then((r) => r.blob())
+                      .then((b) => {
+                        const u = URL.createObjectURL(b)
+                        const a = document.createElement('a')
+                        a.href = u
+                        a.download = 'applications.xlsx'
+                        a.click()
+                        URL.revokeObjectURL(u)
+                      })
+                  }
+                }}
+              >
+                엑셀 받기
+              </a>
+            </>
+          }
+        />
+      )}
 
       <div className="card card--accent">
         <h1 className="page-title">
           <span className="page-title__emoji" aria-hidden>
-            ✨
+            {isTeacherView ? '📋' : '✨'}
           </span>
-          관리자 대시보드
+          {isTeacherView ? '동아리 배정 현황' : '관리자 대시보드'}
         </h1>
-        <p className="page-lead">구글 시트와 맞추고, 한눈에 동아리 현황을 확인해요.</p>
-        <div className="row" style={{ marginBottom: 4 }}>
-          <button type="button" onClick={onSync} disabled={syncing}>
-            {syncing ? '동기화 중… (구글·DB 처리로 1~2분 걸릴 수 있음)' : '학생/동아리 동기화'}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={onExportSheets}
-            disabled={exportingSheets}
-          >
-            {exportingSheets ? '전송 중…' : '결과 → 구글 시트'}
-          </button>
-        </div>
-        {msg && <p className="success">{msg}</p>}
-        {err && <p className="error">{err}</p>}
+        <p className="page-lead">
+          {isTeacherView
+            ? '동아리를 펼치면 배정된 학생 명단을 볼 수 있어요.'
+            : '구글 시트와 맞추고, 한눈에 동아리 현황을 확인해요.'}
+        </p>
+        {!isTeacherView && (
+          <>
+            <div className="row" style={{ marginBottom: 4 }}>
+              <button type="button" onClick={onSync} disabled={syncing}>
+                {syncing ? '동기화 중… (구글·DB 처리로 1~2분 걸릴 수 있음)' : '학생/동아리 동기화'}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={onExportSheets}
+                disabled={exportingSheets}
+              >
+                {exportingSheets ? '전송 중…' : '결과 → 구글 시트'}
+              </button>
+            </div>
+            {msg && <p className="success">{msg}</p>}
+            {err && <p className="error">{err}</p>}
+          </>
+        )}
+        {isTeacherView && err && <p className="error">{err}</p>}
         {d && (
           <div className="stat-row">
             <span className="stat-chip stat-chip--lavender">

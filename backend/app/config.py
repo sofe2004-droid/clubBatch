@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "changeme"
 
+    teacher_view_username: str = "teacher"
+    teacher_view_password: str = "club2026"
+
     google_service_account_json_path: str | None = None  # 로컬 JSON 파일
     google_service_account_json: str | None = None  # Railway 등: 키 JSON 전체 문자열(우선)
     google_sheets_spreadsheet_id: str | None = None

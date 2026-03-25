@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { fetchAdminClubs, forceAssign } from '../api'
 import { AdminNav } from '../components/AdminNav'
+import { useBlockTeacherFromFullAdmin } from '../hooks/useBlockTeacherFromFullAdmin'
 import { ADMIN_TOKEN_KEY } from './AdminLogin'
 
 type ForceAssignNavState = {
@@ -12,6 +13,7 @@ type ForceAssignNavState = {
 }
 
 export function AdminForceAssign() {
+  useBlockTeacherFromFullAdmin()
   const loc = useLocation() as { state?: ForceAssignNavState }
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
   const [studentId, setStudentId] = useState(

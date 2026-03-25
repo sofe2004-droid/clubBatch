@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchUnassigned } from '../api'
 import { AdminNav } from '../components/AdminNav'
+import { useBlockTeacherFromFullAdmin } from '../hooks/useBlockTeacherFromFullAdmin'
 import { ADMIN_TOKEN_KEY } from './AdminLogin'
 
 export function AdminUnassigned() {
+  useBlockTeacherFromFullAdmin()
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
   const [items, setItems] = useState<
     { student_id: number; student_number: string; name: string; reason: string }[]

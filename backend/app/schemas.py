@@ -49,6 +49,7 @@ class AdminLoginRequest(BaseModel):
 class AdminLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    role: str = "admin"
 
 
 class ApplicationSettingsOut(BaseModel):

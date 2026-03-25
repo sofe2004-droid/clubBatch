@@ -3,9 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { ApplicationListItem } from '../api'
 import { cancelStudentApplicationAdmin, fetchApplications } from '../api'
 import { AdminNav } from '../components/AdminNav'
+import { useBlockTeacherFromFullAdmin } from '../hooks/useBlockTeacherFromFullAdmin'
 import { ADMIN_TOKEN_KEY } from './AdminLogin'
 
 export function AdminApplications() {
+  useBlockTeacherFromFullAdmin()
   const token = sessionStorage.getItem(ADMIN_TOKEN_KEY)
   const navigate = useNavigate()
   const [q, setQ] = useState('')
