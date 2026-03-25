@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 from googleapiclient.discovery import build
@@ -170,42 +171,64 @@ def _rows_to_clubs(values: list[list[str]]) -> tuple[list[dict], str | None]:
     return out, None
 
 
-async def _resolve_club_by_ref(db: AsyncSession, ref: str) -> Club | None:
+def _club_from_ref(
+    ref: str,
+    clubs_by_code: dict[str, Club],
+    clubs_by_name: dict[str, Club],
+) -> Club | None:
     code_try = normalize_club_code(ref)
-    r = await db.execute(select(Club).where(Club.club_code == code_try))
-    c = r.scalar_one_or_none()
+    c = clubs_by_code.get(code_try)
     if c is not None:
         return c
     name_try = normalize_person_name(ref)
-    r2 = await db.execute(select(Club).where(Club.club_name == name_try))
-    return r2.scalar_one_or_none()
+    return clubs_by_name.get(name_try)
+
+
+def _blocking_fetch_sheet_ranges(
+    service: object,
+    spreadsheet_id: str,
+    stu_range: str,
+    club_range: str,
+) -> tuple[dict, dict]:
+    sh = service.spreadsheets()
+    stu_resp = (
+        sh.values()
+        .get(spreadsheetId=spreadsheet_id, range=stu_range)
+        .execute()
+    )
+    club_resp = (
+        sh.values()
+        .get(spreadsheetId=spreadsheet_id, range=club_range)
+        .execute()
+    )
+    return stu_resp, club_resp
 
 
 async def _apply_sheet_preassignments(
     db: AsyncSession,
     student_rows: list[dict],
     now: datetime,
+    students_by_sn: dict[str, Student],
+    clubs_by_code: dict[str, Club],
+    clubs_by_name: dict[str, Club],
 ) -> tuple[int, list[str]]:
     """시트 상태열에 적힌 선정 동아리를 applications에 반영(기존 활성 신청은 취소 처리)."""
     applied = 0
     warnings: list[str] = []
-    for sd in student_rows:
-        ref = sd.get("preassign_club_ref")
-        if not ref:
-            continue
-        sn = sd["student_number"]
-        stu_r = await db.execute(select(Student).where(Student.student_number == sn))
-        stu = stu_r.scalar_one_or_none()
-        if stu is None:
-            warnings.append(f"{sn}: 학생 없음")
-            continue
-        club = await _resolve_club_by_ref(db, ref)
-        if club is None:
-            warnings.append(f"{sn}: 동아리 매칭 실패 ({ref})")
-            continue
+    rows_with_ref = [sd for sd in student_rows if sd.get("preassign_club_ref")]
+    if not rows_with_ref:
+        return 0, []
+
+    cancel_ids: list[int] = []
+    for sd in rows_with_ref:
+        stu = students_by_sn.get(sd["student_number"])
+        if stu is not None:
+            cancel_ids.append(stu.id)
+
+    if cancel_ids:
         prev = await db.execute(
             select(Application).where(
-                Application.student_id == stu.id,
+                Application.student_id.in_(cancel_ids),
                 Application.status.in_(
                     [ApplicationStatus.COMPLETED, ApplicationStatus.FORCED_ASSIGN]
                 ),
@@ -213,6 +236,18 @@ async def _apply_sheet_preassignments(
         )
         for app in prev.scalars().all():
             app.status = ApplicationStatus.CANCELLED
+
+    for sd in rows_with_ref:
+        sn = sd["student_number"]
+        ref = sd["preassign_club_ref"]
+        stu = students_by_sn.get(sn)
+        if stu is None:
+            warnings.append(f"{sn}: 학생 없음")
+            continue
+        club = _club_from_ref(ref, clubs_by_code, clubs_by_name)
+        if club is None:
+            warnings.append(f"{sn}: 동아리 매칭 실패 ({ref})")
+            continue
         db.add(
             Application(
                 student_id=stu.id,
@@ -225,6 +260,7 @@ async def _apply_sheet_preassignments(
         )
         stu.may_self_apply = False
         applied += 1
+
     await db.flush()
     return applied, warnings
 
@@ -249,18 +285,14 @@ async def sync_from_google_sheets(db: AsyncSession) -> tuple[bool, str, int, int
     await db.flush()
 
     try:
-        sh = service.spreadsheets()
         stu_range = s.google_sheets_students_range
         club_range = s.google_sheets_clubs_range
-        stu_resp = (
-            sh.values()
-            .get(spreadsheetId=spreadsheet_id, range=stu_range)
-            .execute()
-        )
-        club_resp = (
-            sh.values()
-            .get(spreadsheetId=spreadsheet_id, range=club_range)
-            .execute()
+        stu_resp, club_resp = await asyncio.to_thread(
+            _blocking_fetch_sheet_ranges,
+            service,
+            spreadsheet_id,
+            stu_range,
+            club_range,
         )
         stu_vals = stu_resp.get("values") or []
         club_vals = club_resp.get("values") or []
@@ -272,10 +304,15 @@ async def sync_from_google_sheets(db: AsyncSession) -> tuple[bool, str, int, int
         if e2:
             raise ValueError(e2)
 
+        codes = [cd["club_code"] for cd in clubs]
+        clubs_existing: dict[str, Club] = {}
+        if codes:
+            r_clubs = await db.execute(select(Club).where(Club.club_code.in_(codes)))
+            clubs_existing = {c.club_code: c for c in r_clubs.scalars().all()}
+
         cu = 0
         for cd in clubs:
-            r = await db.execute(select(Club).where(Club.club_code == cd["club_code"]))
-            row = r.scalar_one_or_none()
+            row = clubs_existing.get(cd["club_code"])
             if row:
                 row.club_name = cd["club_name"]
                 row.teacher_name = cd["teacher_name"]
@@ -283,25 +320,35 @@ async def sync_from_google_sheets(db: AsyncSession) -> tuple[bool, str, int, int
                 row.description = cd["description"]
                 row.is_open = cd["is_open"]
             else:
-                db.add(
-                    Club(
-                        club_code=cd["club_code"],
-                        club_name=cd["club_name"],
-                        teacher_name=cd["teacher_name"],
-                        capacity=cd["capacity"],
-                        description=cd["description"],
-                        is_open=cd["is_open"],
-                    )
+                neu = Club(
+                    club_code=cd["club_code"],
+                    club_name=cd["club_name"],
+                    teacher_name=cd["teacher_name"],
+                    capacity=cd["capacity"],
+                    description=cd["description"],
+                    is_open=cd["is_open"],
                 )
+                db.add(neu)
+                clubs_existing[cd["club_code"]] = neu
             cu += 1
         await db.flush()
 
+        r_all_clubs = await db.execute(select(Club))
+        club_rows = list(r_all_clubs.scalars().all())
+        clubs_by_code = {c.club_code: c for c in club_rows}
+        clubs_by_name = {c.club_name: c for c in club_rows}
+
+        sns = [sd["student_number"] for sd in students]
+        by_sn: dict[str, Student] = {}
+        if sns:
+            r_stu = await db.execute(
+                select(Student).where(Student.student_number.in_(sns))
+            )
+            by_sn = {s.student_number: s for s in r_stu.scalars().all()}
+
         su = 0
         for sd in students:
-            r = await db.execute(
-                select(Student).where(Student.student_number == sd["student_number"])
-            )
-            row = r.scalar_one_or_none()
+            row = by_sn.get(sd["student_number"])
             if row:
                 row.name = sd["name"]
                 row.grade = sd["grade"]
@@ -309,21 +356,23 @@ async def sync_from_google_sheets(db: AsyncSession) -> tuple[bool, str, int, int
                 row.attendance_no = sd["attendance_no"]
                 row.status = sd["status"]
             else:
-                db.add(
-                    Student(
-                        student_number=sd["student_number"],
-                        name=sd["name"],
-                        grade=sd["grade"],
-                        class_no=sd["class_no"],
-                        attendance_no=sd["attendance_no"],
-                        status=sd["status"],
-                    )
+                neu = Student(
+                    student_number=sd["student_number"],
+                    name=sd["name"],
+                    grade=sd["grade"],
+                    class_no=sd["class_no"],
+                    attendance_no=sd["attendance_no"],
+                    status=sd["status"],
                 )
+                db.add(neu)
+                by_sn[sd["student_number"]] = neu
             su += 1
         await db.flush()
 
         now = datetime.now(timezone.utc)
-        pa, warns = await _apply_sheet_preassignments(db, students, now)
+        pa, warns = await _apply_sheet_preassignments(
+            db, students, now, by_sn, clubs_by_code, clubs_by_name
+        )
 
         extra = ""
         if warns:

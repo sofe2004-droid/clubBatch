@@ -118,7 +118,7 @@ export function fetchDashboard(token: string) {
 
 export function syncSheets(token: string) {
   const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), 180_000)
+  const t = setTimeout(() => ctrl.abort(), 600_000)
   return apiFetch<{
     ok: boolean
     message: string

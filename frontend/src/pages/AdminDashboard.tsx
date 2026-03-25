@@ -84,7 +84,7 @@ export function AdminDashboard() {
         (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
         (e instanceof Error && e.name === 'AbortError')
       if (aborted) {
-        setErr('동기화 요청 시간 초과(3분). 서버·구글 시트 응답이 느립니다. 잠시 후 다시 시도하거나 Railway 로그를 확인하세요.')
+        setErr('동기화 요청 시간 초과(10분). 서버·구글 시트 응답이 느립니다. 잠시 후 다시 시도하거나 Railway 로그를 확인하세요.')
       } else {
         setErr(e instanceof Error ? e.message : '동기화 실패')
       }
