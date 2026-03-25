@@ -345,25 +345,41 @@ async def list_unassigned(
         stmt = stmt.where(Student.class_no == class_no)
     r = await db.execute(stmt.order_by(Student.student_number))
     students = r.scalars().all()
-    out = []
+    filtered = []
     for st in students:
         if q:
             qq = q.strip()
             if qq and qq not in st.student_number and qq not in st.name:
                 continue
-        reason = "미신청"
+        filtered.append(st)
+
+    attempt_reason: dict[int, str] = {}
+    ids = [st.id for st in filtered]
+    if ids:
+        rn = func.row_number().over(
+            partition_by=ApplicationAttempt.student_id,
+            order_by=ApplicationAttempt.attempted_at.desc(),
+        ).label("rn")
+        subq = (
+            select(ApplicationAttempt.student_id, ApplicationAttempt.failure_reason, rn).where(
+                ApplicationAttempt.student_id.in_(ids)
+            )
+        ).subquery()
         att_r = await db.execute(
-            select(ApplicationAttempt)
-            .where(ApplicationAttempt.student_id == st.id)
-            .order_by(ApplicationAttempt.attempted_at.desc())
-            .limit(1)
+            select(subq.c.student_id, subq.c.failure_reason).where(subq.c.rn == 1)
         )
-        last_att = att_r.scalar_one_or_none()
-        if last_att:
-            if last_att.failure_reason == "capacity_full":
-                reason = "정원 초과로 실패"
+        for row in att_r.all():
+            sid, fr = row[0], row[1]
+            if fr == "capacity_full":
+                attempt_reason[sid] = "정원 초과로 실패"
+            elif fr:
+                attempt_reason[sid] = fr
             else:
-                reason = last_att.failure_reason
+                attempt_reason[sid] = "미신청"
+
+    out = []
+    for st in filtered:
+        reason = attempt_reason.get(st.id, "미신청")
         out.append(
             {
                 "student_id": st.id,
